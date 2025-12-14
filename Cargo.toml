@@ -1,9 +1,9 @@
 [package]
 name = "kaeo"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 authors = ["Pascal Perrenoud <pascal@pband.ch>"]
-description = "Keep an Eye on files and folder, run a command when on changes"
+description = "Keep an Eye on files and folder, run a command when one changes"
 documentation = "https://docs.rs/kaeo"
 readme = "./README.md"
 repository = "https://github.com/MrDaves24/kaeo"
