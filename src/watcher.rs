@@ -33,7 +33,7 @@ pub fn watch(
         if command.uses_placeholder() {
             let shown: BTreeSet<_> = changed
                 .iter()
-                .map(|path| display_path(path, &paths, &canon, recursive))
+                .filter_map(|path| display_path(path, &paths, &canon, recursive))
                 .collect();
             for (i, path) in shown.iter().enumerate() {
                 command.run(Some(path), i == 0);

@@ -20,29 +20,27 @@ pub fn check_path(path: &Path) -> Option<PathBuf> {
 }
 
 /// Index of the closest ancestor of `child` in `ancestors`
-pub fn find_ancestor(child: &Path, ancestors: &[PathBuf]) -> usize {
-    for ancestor in child.ancestors() {
-        if let Some(i) = ancestors.iter().position(|a| a == ancestor) {
-            return i;
-        }
-    }
-    panic!("Event detected outside of directories watched?");
+pub fn find_ancestor(child: &Path, ancestors: &[PathBuf]) -> Option<usize> {
+    child
+        .ancestors()
+        .find_map(|ancestor| ancestors.iter().position(|a| a == ancestor))
 }
 
 /// Path given to the command for a changed file, based on the paths as the user typed them:
-/// the watched path, or with `recursive`, the changed file under it
+/// the watched path, or with `recursive`, the changed file under it.
+/// None if the file is outside the watched paths
 pub fn display_path(
     changed: &Path,
     typed: &[PathBuf],
     canon: &[PathBuf],
     recursive: bool,
-) -> PathBuf {
-    let i = find_ancestor(changed, canon);
+) -> Option<PathBuf> {
+    let i = find_ancestor(changed, canon)?;
     let relative = changed.strip_prefix(&canon[i]).unwrap(); // find_ancestor guarantees it
     if !recursive || relative.as_os_str().is_empty() {
-        typed[i].clone()
+        Some(typed[i].clone())
     } else {
-        typed[i].join(relative)
+        Some(typed[i].join(relative))
     }
 }
 
@@ -62,8 +60,9 @@ mod tests {
             PathBuf::from("/p/src/sub"),
             PathBuf::from("/p/Cargo.toml"),
         ];
-        let show =
-            |changed: &str, recursive| display_path(Path::new(changed), &typed, &canon, recursive);
+        let show = |changed: &str, recursive| {
+            display_path(Path::new(changed), &typed, &canon, recursive).unwrap()
+        };
 
         assert_eq!(show("/p/src/main.rs", false), Path::new("src/"));
         assert_eq!(show("/p/src/main.rs", true), Path::new("src/main.rs"));
@@ -72,5 +71,10 @@ mod tests {
         assert_eq!(show("/p/src/sub/a.rs", true), Path::new("src/sub/a.rs"));
         // Watched file itself, no trailing slash added
         assert_eq!(show("/p/Cargo.toml", true), Path::new("Cargo.toml"));
+        // Outside watched paths
+        assert_eq!(
+            display_path(Path::new("/q/a.rs"), &typed, &canon, true),
+            None
+        );
     }
 }
