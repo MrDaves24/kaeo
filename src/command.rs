@@ -126,17 +126,13 @@ fn print_header(with_right: bool, line: &str) {
     let x = terminal::size().unwrap_or((0, 0)).0 as usize;
 
     // Right header
-    let hostname = gethostname();
-    // len might be a source of error
-    let right_len = hostname.len() + 19 + 2; // FUTURE : Might change with locale
-    for _ in 0..(x.saturating_sub(right_len + len_left)) {
-        print!(" ");
-    }
-    println!(
+    let right = format!(
         "{}: {}",
-        hostname.display(),
+        gethostname().to_string_lossy(),
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
     );
+    let padding = x.saturating_sub(len_left + right.chars().count());
+    println!("{}{right}", " ".repeat(padding));
 }
 
 #[cfg(test)]
