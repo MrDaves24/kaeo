@@ -92,7 +92,7 @@ impl Command {
             Ok(c) => c,
             Err(err) => {
                 eprintln!("Failed to spawn process");
-                eprint!("Error : {err:?}");
+                eprintln!("Error : {err:?}");
                 return;
             }
         };
