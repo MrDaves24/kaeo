@@ -3,7 +3,7 @@ use notify_debouncer_full::{
     DebounceEventResult, DebouncedEvent, new_debouncer,
     notify::{EventKind, RecursiveMode, event::ModifyKind},
 };
-use std::{path::PathBuf, sync::mpsc::Sender, time::Duration};
+use std::{collections::BTreeSet, path::PathBuf, sync::mpsc::Sender, time::Duration};
 
 /// Only returns on failure, with the error to print
 pub fn watch(
@@ -27,28 +27,40 @@ pub fn watch(
         }
     }
 
-    // Handle fs events
+    // Handle fs events, one run per changed path even if it changed several times in the batch
     for events in rx {
-        for event in events {
-            let modified = match event.kind {
-                EventKind::Modify(modify_kind) => modify_kind,
-                // FUTURE : Also kaeo Create
-                _ => continue,
-            };
-            let _data = match modified {
-                ModifyKind::Data(data_change) => data_change,
-                // FUTURE : Also kaeo Metadata changes
-                _ => continue,
-            };
-
-            assert_eq!(event.paths.len(), 1);
-            let current = command
-                .uses_placeholder()
-                .then(|| display_path(&event.paths[0], &paths, &canon, recursive));
-            command.run(current.as_deref(), true);
+        let changed = changed_paths(events);
+        if command.uses_placeholder() {
+            let shown: BTreeSet<_> = changed
+                .iter()
+                .map(|path| display_path(path, &paths, &canon, recursive))
+                .collect();
+            for (i, path) in shown.iter().enumerate() {
+                command.run(Some(path), i == 0);
+            }
+        } else if !changed.is_empty() {
+            command.run(None, true);
         }
     }
     "Stopped receiving file events".into()
+}
+
+/// Created, written or renamed paths that still exist
+fn changed_paths(events: Vec<DebouncedEvent>) -> BTreeSet<PathBuf> {
+    let mut changed = BTreeSet::new();
+    for event in events {
+        // Editors saving atomically (vim, temp file + rename) give Create or Name, not Data
+        // FUTURE : Also kaeo Metadata changes
+        let relevant = matches!(
+            event.kind,
+            EventKind::Create(_) | EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Name(_))
+        );
+        if relevant {
+            // Gone paths: deleted files, temp files renamed by an atomic save
+            changed.extend(event.event.paths.into_iter().filter(|p| p.exists()));
+        }
+    }
+    changed
 }
 
 fn on_event(tx: Sender<Vec<DebouncedEvent>>) -> impl Fn(DebounceEventResult) {
@@ -65,5 +77,43 @@ fn on_event(tx: Sender<Vec<DebouncedEvent>>) -> impl Fn(DebounceEventResult) {
             eprintln!("Failed to transmit fs event");
             eprintln!("Error : {err:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify_debouncer_full::notify::{
+        Event,
+        event::{CreateKind, DataChange, MetadataKind},
+    };
+    use std::time::Instant;
+
+    #[test]
+    fn changed() {
+        let dir = std::env::temp_dir().join(format!("kaeo watcher {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b, tmp) = (dir.join("a"), dir.join("b"), dir.join(".a.tmp"));
+        std::fs::write(&a, "").unwrap();
+        std::fs::write(&b, "").unwrap();
+
+        let event = |kind, path: &PathBuf| {
+            DebouncedEvent::new(Event::new(kind).add_path(path.clone()), Instant::now())
+        };
+        let data = EventKind::Modify(ModifyKind::Data(DataChange::Any));
+        let events = vec![
+            event(data, &a),
+            event(data, &a),
+            event(EventKind::Create(CreateKind::File), &b),
+            event(EventKind::Create(CreateKind::File), &tmp), // renamed away, gone
+            event(
+                EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
+                &dir,
+            ),
+        ];
+        let changed = changed_paths(events);
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(changed, BTreeSet::from([a, b]));
     }
 }
