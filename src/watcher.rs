@@ -5,25 +5,25 @@ use notify_debouncer_full::{
 };
 use std::{path::PathBuf, sync::mpsc::Sender, time::Duration};
 
-pub fn watch(command: Command, paths: Vec<PathBuf>, canon: Vec<PathBuf>, recursive: bool) {
+/// Only returns on failure, with the error to print
+pub fn watch(
+    command: Command,
+    paths: Vec<PathBuf>,
+    canon: Vec<PathBuf>,
+    recursive: bool,
+) -> String {
     // Open debouncer
     let (tx, rx) = std::sync::mpsc::channel::<Vec<DebouncedEvent>>();
     let debouncer = new_debouncer(Duration::from_millis(500), None, on_event(tx));
     let mut debouncer = match debouncer {
         Ok(d) => d,
-        Err(err) => {
-            eprintln!("Failed to create Debouncer");
-            eprintln!("Error : {err:?}");
-            return;
-        }
+        Err(err) => return format!("Failed to create Debouncer\nError : {err:?}"),
     };
 
     // Watch for change on all paths
     for path in canon.iter() {
         if let Err(err) = debouncer.watch(path, RecursiveMode::Recursive) {
-            eprintln!("Failed to keep an eye on {path:?} for changes");
-            eprintln!("Error : {err:?}");
-            return;
+            return format!("Failed to keep an eye on {path:?} for changes\nError : {err:?}");
         }
     }
 
@@ -48,6 +48,7 @@ pub fn watch(command: Command, paths: Vec<PathBuf>, canon: Vec<PathBuf>, recursi
             command.run(current.as_deref(), true);
         }
     }
+    "Stopped receiving file events".into()
 }
 
 fn on_event(tx: Sender<Vec<DebouncedEvent>>) -> impl Fn(DebounceEventResult) {

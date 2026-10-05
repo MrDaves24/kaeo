@@ -37,5 +37,8 @@ fn main() {
     } else {
         command.run(None, true);
     }
-    watch(command, args.path, canon, args.recursive);
+    let error = watch(command, args.path, canon, args.recursive);
+    // Print after leaving, the alternate screen would erase it
+    execute!(io::stdout(), terminal::LeaveAlternateScreen).ok(); // FUTURE : Error
+    eprintln!("{error}");
 }

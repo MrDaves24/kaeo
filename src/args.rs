@@ -24,10 +24,12 @@ pub struct Args {
     // FUTURE : Don't clean terminal
     // FUTURE : Log to file
     // FUTURE : logs at all ?
-    #[arg(help = "Command to run when a file or folder changes, with sh -c (pipes, &&, redirects work)
+    #[arg(
+        help = "Command to run when a file or folder changes, with sh -c (pipes, &&, redirects work)
 Use {} to include the path that changed
 Use {@} to include all watched paths, as separate arguments
-Don't quote placeholders, paths are quoted when needed")]
+Don't quote placeholders, paths are quoted when needed"
+    )]
     pub command: String,
 
     #[arg(required = true, help = "Paths to watch for changes")]
