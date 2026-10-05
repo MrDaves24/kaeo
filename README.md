@@ -6,7 +6,7 @@ Keep an eye on a folder, folders, a file or files and run a command when anythin
 Usage: kaeo [OPTIONS] <COMMAND> <PATH>...
 
 Arguments:
-  <COMMAND>  Command to run when a file or folder changes
+  <COMMAND>  Command to run when a file or folder changes, with sh -c (pipes, &&, redirects work)
              Use {} to include the path that changed
              Use {@} to include all watched paths, as separate arguments
              Don't quote placeholders, paths are quoted when needed
@@ -32,10 +32,13 @@ What command runs when `src/main.rs` changes ?
   - `du -hs src/ Cargo.toml`
 - Placeholder inside an argument : `kaeo -r "diff {} {}.orig" src/`
   - `diff src/main.rs src/main.rs.orig`
+- Shell syntax : `kaeo -r "wc -l {} && cargo test 2>&1 | tail -1" src/`
+  - `sh -c "wc -l src/main.rs && cargo test 2>&1 | tail -1"`
 - Command needing a literal `{}` : `kaeo -I @ "jq '{}' @" data.json`
   - `jq '{}' data.json` when `data.json` changes
 
 # Notes
+The command runs with `sh -c`, so pipes, `&&`, redirects, `$VAR` and globs work. Need zsh or bash syntax? `kaeo "zsh -c '…'" src/`
 Don't put quotes around placeholders: paths are added as unique arguments, even if they contain spaces.
 Paths are given as you typed them, relative to where kaeo was started.
 The command also runs once at startup, or once per watched path when it uses `{}`.

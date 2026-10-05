@@ -26,6 +26,10 @@ fn quote(path: &Path) -> String {
 
 impl Command {
     pub fn new(template: String, placeholder: String, paths: &[PathBuf]) -> Option<Self> {
+        if template.trim().is_empty() {
+            eprintln!("Empty command");
+            return None;
+        }
         let all_paths = paths.iter().map(|p| quote(p)).collect::<Vec<_>>().join(" ");
         let mut command = Self {
             template,
@@ -33,19 +37,7 @@ impl Command {
             all_paths,
             uses_placeholder: false,
         };
-        let (line, uses_placeholder) = command.substitute(&quote(Path::new("")));
-        match shlex::split(&line) {
-            None => {
-                eprintln!("Invalid command, cannot parse");
-                return None;
-            }
-            Some(args) if args.is_empty() => {
-                eprintln!("Empty command");
-                return None;
-            }
-            Some(_) => (),
-        }
-        command.uses_placeholder = uses_placeholder;
+        command.uses_placeholder = command.substitute("").1;
         Some(command)
     }
 
@@ -70,31 +62,29 @@ impl Command {
         (line, used)
     }
 
-    fn args(&self, current_path: Option<&Path>) -> Option<Vec<String>> {
-        let (line, _) = self.substitute(&current_path.map(quote).unwrap_or_default());
-        shlex::split(&line).filter(|args| !args.is_empty())
+    /// Command line run by `sh -c`
+    fn line(&self, current_path: Option<&Path>) -> String {
+        self.substitute(&current_path.map(quote).unwrap_or_default())
+            .0
     }
 
     pub fn run(&self, current_path: Option<&Path>, clean: bool) {
         // Prepare process
-        let Some(args) = self.args(current_path) else {
-            // Placeholder inside the user's own quotes, e.g. "{}" with a path containing "
-            eprintln!("Cannot parse command after inserting paths, don't quote placeholders");
-            return;
-        };
-        let mut process = std::process::Command::new(&args[0]);
+        let line = self.line(current_path);
+        let mut process = std::process::Command::new("sh");
         process
-            .args(&args[1..])
+            .arg("-c")
+            .arg(&line)
             .stderr(Stdio::inherit())
             .stdout(Stdio::inherit());
 
         // Handle terminal
         if clean {
             execute!(std::io::stdout(), Clear(ClearType::All), MoveTo(0, 0)).ok(); // FUTURE : Error
-            print_header(true, &process);
+            print_header(true, &line);
         } else {
             println!();
-            print_header(false, &process);
+            print_header(false, &line);
         }
 
         // Spawn process
@@ -124,17 +114,9 @@ impl Command {
     }
 }
 
-fn print_header(with_right: bool, command: &std::process::Command) {
-    let mut len_left = 0;
-    print!("{}", command.get_program().display());
-    len_left += command.get_program().len(); // Might be a source of error :) (len of storage != len displayed)
-
-    for arg in command.get_args() {
-        print!(" ");
-        // TODO : Add quotes if it contains any whitespace
-        print!("{}", arg.display());
-        len_left += 1 + arg.len(); // Might again be a source of error
-    }
+fn print_header(with_right: bool, line: &str) {
+    print!("{line}");
+    let len_left = line.chars().count();
 
     if !with_right {
         println!();
@@ -164,7 +146,8 @@ mod tests {
     fn args(template: &str, placeholder: &str, paths: &[&str], current: &str) -> Vec<String> {
         let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
         let command = Command::new(template.into(), placeholder.into(), &paths).unwrap();
-        command.args(Some(Path::new(current))).unwrap()
+        // Words as sh sees them
+        shlex::split(&command.line(Some(Path::new(current)))).unwrap()
     }
 
     #[test]
@@ -207,5 +190,28 @@ mod tests {
         assert!(!new("du {@}", "{}").uses_placeholder());
         assert!(!new("du {@}", "@").uses_placeholder());
         assert!(!new("date +%s", "{}").uses_placeholder());
+    }
+
+    #[test]
+    fn runs_through_sh() {
+        let dir = std::env::temp_dir().join(format!("kaeo test {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a b.txt");
+        std::fs::write(&file, "hello\n").unwrap();
+
+        let template = "tr a-z A-Z < {} > {}.out && cat {}.out | wc -l && cat {}.out";
+        let command = Command::new(template.into(), "{}".into(), &[]).unwrap();
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(command.line(Some(&file)))
+            .output()
+            .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            stdout.split_whitespace().collect::<Vec<_>>(),
+            ["1", "HELLO"]
+        );
     }
 }
