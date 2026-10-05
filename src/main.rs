@@ -31,8 +31,18 @@ fn main() -> ExitCode {
 
     execute!(io::stdout(), terminal::EnterAlternateScreen).ok(); // FUTURE : Error
     if command.uses_placeholder() {
-        for (i, path) in args.path.iter().enumerate() {
+        // With -r, {} is a file: skip watched folders
+        let startup: Vec<_> = args
+            .path
+            .iter()
+            .zip(&canon)
+            .filter(|(_, canon)| !(args.recursive && canon.is_dir()))
+            .collect();
+        for (i, (path, _)) in startup.iter().enumerate() {
             command.run(Some(path), i == 0);
+        }
+        if startup.is_empty() {
+            println!("Waiting for changes...");
         }
     } else {
         command.run(None, true);

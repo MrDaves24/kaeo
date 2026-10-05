@@ -38,7 +38,7 @@ What command runs when `src/main.rs` changes ?
   - `jq '{}' data.json` when `data.json` changes
 
 # Notes
-The command runs with `sh -c`, so pipes, `&&`, redirects, `$VAR` and globs work. Need zsh or bash syntax? `kaeo "zsh -c '…'" src/`
+The command runs with `sh -c`, so pipes, `&&`, redirects, `$VAR` and globs work. Need zsh or bash syntax? Put it in a script with a shebang: `kaeo -r "./check.zsh {}" src/`, the path is `$1` in the script.
 Don't put quotes around placeholders: paths are added as unique arguments, even if they contain spaces.
 Paths are given as you typed them, relative to where kaeo was started.
-The command also runs once at startup, or once per watched path when it uses `{}`.
+The command also runs once at startup, or once per watched path when it uses `{}`. With `-r`, watched folders are skipped at startup, as `{}` is meant to be a file.
