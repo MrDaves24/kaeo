@@ -1,6 +1,6 @@
 [package]
 name = "kaeo"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2024"
 authors = ["Pascal Perrenoud <pascal@pband.ch>"]
 description = "Keep an Eye on files and folder, run a command when one changes"
@@ -13,9 +13,9 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 chrono = "0.4"
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 crossterm = "0.29"
 ctrlc = { version = "3.5", features = ["termination"] }
 gethostname = "1.1"
 notify-debouncer-full = "0.7"
-shlex = "1.3"
+shlex = "2"
