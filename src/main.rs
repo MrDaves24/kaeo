@@ -11,15 +11,15 @@ pub mod watcher;
 
 fn main() {
     // Parse args
-    let mut args = args::Args::parse();
-    for path in args.path.iter_mut() {
-        if let Some(canon) = check_path(path) {
-            *path = canon;
-        } else {
+    let args = args::Args::parse();
+    let mut canon = Vec::new();
+    for path in &args.path {
+        let Some(c) = check_path(path) else {
             return;
-        }
+        };
+        canon.push(c);
     }
-    let Some(command) = Command::new(args.command) else {
+    let Some(command) = Command::new(args.command, args.placeholder, &args.path) else {
         return;
     };
 
@@ -30,16 +30,12 @@ fn main() {
     .ok(); // FUTURE : Error
 
     execute!(io::stdout(), terminal::EnterAlternateScreen).ok(); // FUTURE : Error
-    match command.case() {
-        command::Case::NoPath | command::Case::AllPaths | command::Case::AllPathsQuoted => {
-            command.run(&args.path, None, true)
+    if command.uses_placeholder() {
+        for (i, path) in args.path.iter().enumerate() {
+            command.run(Some(path), i == 0);
         }
-        command::Case::OnePath => {
-            command.run(&args.path, Some(&args.path[0]), true);
-            for path in args.path.iter().skip(1) {
-                command.run(&args.path, Some(path), false);
-            }
-        }
+    } else {
+        command.run(None, true);
     }
-    watch(command, args.path, args.recursive);
+    watch(command, args.path, canon, args.recursive);
 }

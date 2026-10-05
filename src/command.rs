@@ -5,89 +5,88 @@ use crossterm::{
 };
 use gethostname::gethostname;
 use std::{
-    ffi::OsString,
     path::{Path, PathBuf},
     process::Stdio,
 };
 
-#[derive(Clone)]
+pub const ALL_PATHS: &str = "{@}";
+
 pub struct Command {
-    case: Case,
-    command: Vec<String>,
-    placeholder_index: usize,
-}
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Case {
-    NoPath,
-    OnePath,
-    AllPaths,
-    AllPathsQuoted,
-    // FUTURE : OnePath AND AllPaths (or quoted) together ?
+    template: String,
+    placeholder: String,
+    all_paths: String,
+    uses_placeholder: bool,
 }
 
-fn find_case(commands: &[String]) -> (Case, usize) {
-    for (i, command) in commands.iter().enumerate() {
-        if command.contains("{}") {
-            return (Case::OnePath, i);
-        } else if command.contains("%%") {
-            return (Case::AllPathsQuoted, i);
-        } else if command.contains("%") {
-            return (Case::AllPaths, i);
-        }
-    }
-
-    (Case::NoPath, 0)
+fn quote(path: &Path) -> String {
+    shlex::try_quote(&path.to_string_lossy())
+        .expect("paths can't contain NUL")
+        .into_owned()
 }
 
 impl Command {
-    pub fn new(command: String) -> Option<Self> {
-        let Some(command) = shlex::split(&command) else {
-            eprintln!("Invalid command, cannot parse");
-            return None;
+    pub fn new(template: String, placeholder: String, paths: &[PathBuf]) -> Option<Self> {
+        let all_paths = paths.iter().map(|p| quote(p)).collect::<Vec<_>>().join(" ");
+        let mut command = Self {
+            template,
+            placeholder,
+            all_paths,
+            uses_placeholder: false,
         };
-        if command.is_empty() {
-            eprintln!("Empty command");
-            return None;
-        }
-        let (case, placeholder_index) = find_case(&command);
-        Some(Self {
-            command,
-            case,
-            placeholder_index,
-        })
-    }
-    pub fn run(&self, paths: &[PathBuf], current_path: Option<&Path>, clean: bool) {
-        // Prepare process
-        let mut process = std::process::Command::new(&self.command[0]);
-        process.stderr(Stdio::inherit()).stdout(Stdio::inherit());
-        if self.case == Case::NoPath {
-            process.args(&self.command[1..]);
-        } else {
-            process.args(&self.command[1..self.placeholder_index]);
-            match self.case {
-                Case::NoPath => (),
-                Case::OnePath => {
-                    process.arg(current_path.unwrap());
-                }
-                Case::AllPaths => {
-                    process.args(paths);
-                }
-                Case::AllPathsQuoted => {
-                    let mut paths_joined = OsString::new();
-                    let mut first = true;
-                    for path in paths {
-                        if first {
-                            first = false;
-                        } else {
-                            paths_joined.push(" ");
-                        }
-                        paths_joined.push(path);
-                    }
-                    process.arg(paths_joined);
-                }
+        let (line, uses_placeholder) = command.substitute(&quote(Path::new("")));
+        match shlex::split(&line) {
+            None => {
+                eprintln!("Invalid command, cannot parse");
+                return None;
             }
-            process.args(&self.command[(self.placeholder_index + 1)..]);
+            Some(args) if args.is_empty() => {
+                eprintln!("Empty command");
+                return None;
+            }
+            Some(_) => (),
         }
+        command.uses_placeholder = uses_placeholder;
+        Some(command)
+    }
+
+    /// Replaces placeholders in one pass, so inserted paths are never substituted again
+    fn substitute(&self, current_path: &str) -> (String, bool) {
+        let mut line = String::new();
+        let mut used = false;
+        let mut rest = self.template.as_str();
+        while let Some(c) = rest.chars().next() {
+            if let Some(r) = rest.strip_prefix(ALL_PATHS) {
+                line.push_str(&self.all_paths);
+                rest = r;
+            } else if let Some(r) = rest.strip_prefix(self.placeholder.as_str()) {
+                line.push_str(current_path);
+                used = true;
+                rest = r;
+            } else {
+                line.push(c);
+                rest = &rest[c.len_utf8()..];
+            }
+        }
+        (line, used)
+    }
+
+    fn args(&self, current_path: Option<&Path>) -> Option<Vec<String>> {
+        let (line, _) = self.substitute(&current_path.map(quote).unwrap_or_default());
+        shlex::split(&line).filter(|args| !args.is_empty())
+    }
+
+    pub fn run(&self, current_path: Option<&Path>, clean: bool) {
+        // Prepare process
+        let Some(args) = self.args(current_path) else {
+            // Placeholder inside the user's own quotes, e.g. "{}" with a path containing "
+            eprintln!("Cannot parse command after inserting paths, don't quote placeholders");
+            return;
+        };
+        let mut process = std::process::Command::new(&args[0]);
+        process
+            .args(&args[1..])
+            .stderr(Stdio::inherit())
+            .stdout(Stdio::inherit());
 
         // Handle terminal
         if clean {
@@ -119,8 +118,9 @@ impl Command {
             println!("Error code : {result}");
         }
     }
-    pub fn case(&self) -> Case {
-        self.case
+
+    pub fn uses_placeholder(&self) -> bool {
+        self.uses_placeholder
     }
 }
 
@@ -155,4 +155,57 @@ fn print_header(with_right: bool, command: &std::process::Command) {
         hostname.display(),
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(template: &str, placeholder: &str, paths: &[&str], current: &str) -> Vec<String> {
+        let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        let command = Command::new(template.into(), placeholder.into(), &paths).unwrap();
+        command.args(Some(Path::new(current))).unwrap()
+    }
+
+    #[test]
+    fn substitution() {
+        let all = ["src/", "my dir"];
+        assert_eq!(
+            args("cp {} {}.bak", "{}", &all, "a.txt"),
+            ["cp", "a.txt", "a.txt.bak"]
+        );
+        assert_eq!(
+            args("fmt --file={}", "{}", &all, "a.rs"),
+            ["fmt", "--file=a.rs"]
+        );
+        assert_eq!(args("date +%s %%", "{}", &all, "x"), ["date", "+%s", "%%"]);
+        assert_eq!(args("{} -v", "{}", &all, "./run.sh"), ["./run.sh", "-v"]);
+        assert_eq!(
+            args("cat {}", "{}", &all, "my dir/a b"),
+            ["cat", "my dir/a b"]
+        );
+        assert_eq!(
+            args("du {@} -s", "{}", &all, "x"),
+            ["du", "src/", "my dir", "-s"]
+        );
+        assert_eq!(
+            args("jq '{}' @", "@", &all, "d.json"),
+            ["jq", "{}", "d.json"]
+        );
+        assert_eq!(
+            args("ls {@} @", "@", &all, "x"),
+            ["ls", "src/", "my dir", "x"]
+        );
+        // Inserted paths are not substituted again
+        assert_eq!(args("echo {}", "{}", &all, "a{}{@}"), ["echo", "a{}{@}"]);
+    }
+
+    #[test]
+    fn uses_placeholder() {
+        let new = |t: &str, p: &str| Command::new(t.into(), p.into(), &[]).unwrap();
+        assert!(new("du {}", "{}").uses_placeholder());
+        assert!(!new("du {@}", "{}").uses_placeholder());
+        assert!(!new("du {@}", "@").uses_placeholder());
+        assert!(!new("date +%s", "{}").uses_placeholder());
+    }
 }

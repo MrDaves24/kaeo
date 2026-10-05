@@ -1,14 +1,11 @@
-use crate::{
-    command::{Case, Command},
-    helpers::find_ancestor,
-};
+use crate::{command::Command, helpers::display_path};
 use notify_debouncer_full::{
     DebounceEventResult, DebouncedEvent, new_debouncer,
     notify::{EventKind, RecursiveMode, event::ModifyKind},
 };
 use std::{path::PathBuf, sync::mpsc::Sender, time::Duration};
 
-pub fn watch(command: Command, paths: Vec<PathBuf>, recursive: bool) {
+pub fn watch(command: Command, paths: Vec<PathBuf>, canon: Vec<PathBuf>, recursive: bool) {
     // Open debouncer
     let (tx, rx) = std::sync::mpsc::channel::<Vec<DebouncedEvent>>();
     let debouncer = new_debouncer(Duration::from_millis(500), None, on_event(tx));
@@ -22,7 +19,7 @@ pub fn watch(command: Command, paths: Vec<PathBuf>, recursive: bool) {
     };
 
     // Watch for change on all paths
-    for path in paths.iter() {
+    for path in canon.iter() {
         if let Err(err) = debouncer.watch(path, RecursiveMode::Recursive) {
             eprintln!("Failed to keep an eye on {path:?} for changes");
             eprintln!("Error : {err:?}");
@@ -45,12 +42,10 @@ pub fn watch(command: Command, paths: Vec<PathBuf>, recursive: bool) {
             };
 
             assert_eq!(event.paths.len(), 1);
-            if !recursive && command.case() == Case::OnePath {
-                let ancestor = find_ancestor(&event.paths[0], &paths);
-                command.run(&paths, Some(&ancestor), true);
-            } else {
-                command.run(&paths, Some(&event.paths[0]), true);
-            }
+            let current = command
+                .uses_placeholder()
+                .then(|| display_path(&event.paths[0], &paths, &canon, recursive));
+            command.run(current.as_deref(), true);
         }
     }
 }
