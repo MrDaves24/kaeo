@@ -1,6 +1,6 @@
 use clap::Parser;
 use crossterm::{execute, terminal};
-use std::io;
+use std::{io, process::ExitCode};
 
 use crate::{command::Command, helpers::check_path, watcher::watch};
 
@@ -9,18 +9,18 @@ pub mod command;
 pub mod helpers;
 pub mod watcher;
 
-fn main() {
+fn main() -> ExitCode {
     // Parse args
     let args = args::Args::parse();
     let mut canon = Vec::new();
     for path in &args.path {
         let Some(c) = check_path(path) else {
-            return;
+            return ExitCode::FAILURE;
         };
         canon.push(c);
     }
     let Some(command) = Command::new(args.command, args.placeholder, &args.path) else {
-        return;
+        return ExitCode::FAILURE;
     };
 
     ctrlc::set_handler(|| {
@@ -41,4 +41,5 @@ fn main() {
     // Print after leaving, the alternate screen would erase it
     execute!(io::stdout(), terminal::LeaveAlternateScreen).ok(); // FUTURE : Error
     eprintln!("{error}");
+    ExitCode::FAILURE
 }
