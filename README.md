@@ -42,3 +42,16 @@ The command runs with `sh -c`, so pipes, `&&`, redirects, `$VAR` and globs work.
 Don't put quotes around placeholders: paths are added as unique arguments, even if they contain spaces.
 Paths are given as you typed them, relative to where kaeo was started.
 The command also runs once at startup, or once per watched path when it uses `{}`. With `-r`, watched folders are skipped at startup, as `{}` is meant to be a file.
+
+# Changelog
+## 2.0.0
+Breaking changes:
+- `%` → `{@}`; `%%` removed
+- Commands run through `sh -c`: pipes, `&&`, redirects work; `$`, `*`, `;` are now interpreted by the shell
+- `{}` gives the path as typed (`src/main.rs`), not the absolute path
+
+Other changes:
+- `{}` works anywhere in an argument and any number of times; `-I` changes it
+- With `-r`, startup skips watched folders
+- One run per batch of changes; vim and atomic saves are detected
+- Exits with code 1 on startup errors

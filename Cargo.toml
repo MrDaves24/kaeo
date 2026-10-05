@@ -1,6 +1,6 @@
 [package]
 name = "kaeo"
-version = "1.0.1"
+version = "2.0.0"
 edition = "2024"
 authors = ["Pascal Perrenoud <pascal@pband.ch>"]
 description = "Keep an Eye on files and folder, run a command when one changes"
